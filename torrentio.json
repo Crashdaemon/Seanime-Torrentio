@@ -1,0 +1,25 @@
+{
+  "id": "torrentio",
+  "name": "Torrentio",
+  "version": "0.1.0",
+  "language": "typescript",
+  "type": "anime-torrent-provider",
+  "description": "Uses Torrentio to find anime torrents.",
+  "author": "Crashdaemon",
+  "icon": "https://raw.githubusercontent.com/Crashdaemon/Seanime-Torrentio/main/torrentio.png",
+  "lang": "multi",
+  "userConfig": {
+    "version": 1,
+    "requiresConfig": false,
+    "fields": [
+      {
+        "type": "text",
+        "name": "torrentioConfig",
+        "label": "Torrentio options (advanced, optional)",
+        "default": ""
+      }
+    ]
+  },
+  "payloadURI": "https://raw.githubusercontent.com/Crashdaemon/Seanime-Torrentio/main/torrentio.ts",
+  "manifestURI": "https://raw.githubusercontent.com/Crashdaemon/Seanime-Torrentio/main/torrentio.json"
+}
