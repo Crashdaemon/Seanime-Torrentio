@@ -60,8 +60,20 @@ function detectBatch(name: string): boolean {
     const n = name.toLowerCase()
     if (/\b(batch|complete|collection)\b/.test(n)) return true
     if (/s\d{1,2}\s*[-~]\s*s\d{1,2}/i.test(name)) return true
-    if (/\b\d{1,3}\s*[-~]\s*\d{1,3}\b/.test(name)) return true
+    const range = name.match(/\b(\d{1,3})\s*[-~]\s*(\d{1,3})\b/)
+    if (range && parseInt(range[2], 10) > parseInt(range[1], 10)) return true
     return false
+}
+
+function detectStreamBatch(s: TorrentioStream): boolean {
+    if (typeof s.fileIdx === "number" && s.fileIdx > 0) return true
+    const lines = (s.title || "").split("\n")
+    if (lines.length > 1 && lines[1].indexOf("/") !== -1) return true
+    return detectBatch(firstLine(s.title) || s.name || "")
+}
+
+function errMsg(e: any): string {
+    return e instanceof Error ? e.message : String(e)
 }
 
 function parseResolution(name: string): string {
@@ -122,7 +134,7 @@ class Provider {
             magnetLink: buildMagnet(s.infoHash, name, s.sources || []),
             infoHash: s.infoHash,
             resolution: resolution,
-            isBatch: detectBatch(name),
+            isBatch: detectStreamBatch(s),
             episodeNumber: -1,
             releaseGroup: "",
             isBestRelease: false,
@@ -147,7 +159,7 @@ class Provider {
                 }
             }
         } catch (e) {
-            console.error("Torrentio: ARM lookup failed: " + (e as Error).message)
+            console.error("Torrentio: ARM lookup failed: " + errMsg(e))
         }
 
         if (!resolved.kitsuId) {
@@ -158,7 +170,7 @@ class Provider {
                     if (d && d.kitsu) resolved.kitsuId = d.kitsu
                 }
             } catch (e) {
-                console.error("Torrentio: yuna lookup failed: " + (e as Error).message)
+                console.error("Torrentio: yuna lookup failed: " + errMsg(e))
             }
         }
 
@@ -207,28 +219,33 @@ class Provider {
         return media.format === "MOVIE" || media.episodeCount === 1
     }
 
+    private async fetchForMedia(ids: ResolvedIds, media: Media, ep: number): Promise<TorrentioStream[]> {
+        const movieOrSingle = this.isMovieOrSingle(media)
+        if (ids.kitsuId) {
+            if (movieOrSingle) {
+                const streams = await this.fetchStreams(this.movieUrl(ids.kitsuId))
+                return streams.length > 0 ? streams : this.fetchStreams(this.seriesUrl(ids.kitsuId, 1))
+            }
+            return this.fetchStreams(this.seriesUrl(ids.kitsuId, ep))
+        }
+        if (ids.imdbId) {
+            if (movieOrSingle) {
+                const streams = await this.fetchStreams(this.imdbMovieUrl(ids.imdbId))
+                return streams.length > 0 ? streams : this.fetchStreams(this.imdbSeriesUrl(ids.imdbId, 1, 1))
+            }
+            return this.fetchStreams(this.imdbSeriesUrl(ids.imdbId, 1, ep))
+        }
+        return []
+    }
+
     async search(opts: AnimeSearchOptions): Promise<AnimeTorrent[]> {
         try {
             const media = opts.media
             const ids = await this.resolveIds(media)
-            const movieOrSingle = this.isMovieOrSingle(media)
-
-            let streams: TorrentioStream[] = []
-            if (ids.kitsuId) {
-                streams = movieOrSingle
-                    ? await this.fetchStreams(this.movieUrl(ids.kitsuId))
-                    : await this.fetchStreams(this.seriesUrl(ids.kitsuId, 1))
-            } else if (ids.imdbId) {
-                streams = movieOrSingle
-                    ? await this.fetchStreams(this.imdbMovieUrl(ids.imdbId))
-                    : await this.fetchStreams(this.imdbSeriesUrl(ids.imdbId, 1, 1))
-            } else {
-                return []
-            }
-
+            const streams = await this.fetchForMedia(ids, media, 1)
             return dedupeByHash(streams.map(s => this.streamToTorrent(s, !!ids.kitsuId)))
         } catch (e) {
-            console.error("Torrentio: search error: " + (e as Error).message)
+            console.error("Torrentio: search error: " + errMsg(e))
             return []
         }
     }
@@ -240,25 +257,16 @@ class Provider {
             const movieOrSingle = this.isMovieOrSingle(media)
             const ep = opts.episodeNumber > 0 ? opts.episodeNumber : 1
 
-            let streams: TorrentioStream[] = []
-            if (ids.kitsuId) {
-                streams = movieOrSingle
-                    ? await this.fetchStreams(this.movieUrl(ids.kitsuId))
-                    : await this.fetchStreams(this.seriesUrl(ids.kitsuId, ep))
-            } else if (ids.imdbId) {
-                streams = movieOrSingle
-                    ? await this.fetchStreams(this.imdbMovieUrl(ids.imdbId))
-                    : await this.fetchStreams(this.imdbSeriesUrl(ids.imdbId, 1, ep))
-            } else {
-                return []
-            }
-
+            const streams = await this.fetchForMedia(ids, media, ep)
             let torrents = streams.map(s => this.streamToTorrent(s, !!ids.kitsuId))
 
             if (!movieOrSingle) {
-                torrents = opts.batch
-                    ? torrents.filter(t => t.isBatch)
-                    : torrents.filter(t => !t.isBatch)
+                if (opts.batch) {
+                    const batches = torrents.filter(t => t.isBatch)
+                    torrents = batches.length > 0 ? batches : torrents
+                } else {
+                    torrents = torrents.filter(t => !t.isBatch)
+                }
             }
 
             if (opts.resolution) {
@@ -267,7 +275,7 @@ class Provider {
 
             return dedupeByHash(torrents)
         } catch (e) {
-            console.error("Torrentio: smartSearch error: " + (e as Error).message)
+            console.error("Torrentio: smartSearch error: " + errMsg(e))
             return []
         }
     }
