@@ -260,13 +260,8 @@ class Provider {
             const streams = await this.fetchForMedia(ids, media, ep)
             let torrents = streams.map(s => this.streamToTorrent(s, !!ids.kitsuId))
 
-            if (!movieOrSingle) {
-                if (opts.batch) {
-                    const batches = torrents.filter(t => t.isBatch)
-                    torrents = batches.length > 0 ? batches : torrents
-                } else {
-                    torrents = torrents.filter(t => !t.isBatch)
-                }
+            if (!movieOrSingle && opts.batch) {
+                torrents = torrents.filter(t => t.isBatch)
             }
 
             if (opts.resolution) {
